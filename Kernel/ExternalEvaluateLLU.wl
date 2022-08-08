@@ -10,7 +10,21 @@ Needs["GeneralUtilities`"]
 Begin["`Private`"]
 
 $Options = <|"IncludeDirectories"->{PacletManager`PacletResource["ExternalEvaluate_LLU", "IncludeDirectory"]}, "Head"->
-"#include \"LLU.h\"
+"#include <LLU/LLU.h>
+ #include \"WolframCompileLibrary.h\"
+ DLLEXPORT mint WolframLibrary_getVersion () {
+      return WolframLibraryVersion;
+}
+
+DLLEXPORT int WolframLibrary_initialize (WolframLibraryData libData)
+{
+      LLU::LibraryData::setLibraryData (libData);
+      return 0;
+}
+
+DLLEXPORT void WolframLibrary_uninitialize (WolframLibraryData libData) {
+      return;
+}
 ",
 "CompileOptions"->" /std:c++latest /EHsc",
 "ExtraObjectFiles" -> "",
@@ -49,6 +63,16 @@ endforeach()"]@
 
 cmakeFile = FileNameJoin[{sourceDirectory, "CMakeLists.txt"}];
 If[!FileExistsQ@cmakeFile, WriteString[cmakeFile, cmake]; Close@cmakeFile]
+
+
+test["code"] := 
+StringTemplate[
+"
+<||>
+Integer __`1`__(Integer a)
+{
+	Return a;
+}"]
 
 
 build[Dynamic[src_], Dynamic[libName_]] := build[src, libName]
@@ -106,11 +130,13 @@ DynamicModule[{debuglib, a, lib, src = Src, functions = Functions, libName = Lib
 				{
 					Button[
 						Style["Release", RGBColor[0.25, 0.48, 1], "FontFamily" -> "Courier", FontSize -> 10], 
-						GetLibraryFunctionDeclarations[File@#1, #2]
+						GetLibraryFunctionDeclarations[File@#1, #2],
+						Method->"Queued"
 					],
 					Button[
 						Style["Debug", RGBColor[0.25, 0.48, 1], "FontFamily" -> "Courier", FontSize -> 10], 
-						GetLibraryFunctionDeclarations[File@#1, #3]
+						GetLibraryFunctionDeclarations[File@#1, #3],
+						Method->"Queued"
 					]
 				}&)[src, lib, debuglib]}
 		}
@@ -119,68 +145,10 @@ DynamicModule[{debuglib, a, lib, src = Src, functions = Functions, libName = Lib
 
 ExternalEvaluate`RegisterSystem["LLU",
 	<|
-		(*standard paths are possible install locations *)
-		"StringTemplateSupportQ" -> True,
+		"ProgramFileFunction"->Function[{x}, x],
 
-
-        "TargetDiscoveryFunction" -> 
-            Function @ FileNames[
-				With[
-					{fileExtension = Switch[$OperatingSystem, "Windows", ".exe", _, ""]},
-					Alternatives[
-						StartOfString~~"python"~~fileExtension~~EndOfString,
-						StartOfString~~"python"~~(DigitCharacter..|(DigitCharacter~~("."~~DigitCharacter)...))~~fileExtension~~EndOfString
-					]
-				], 
-				Switch[$OperatingSystem,
-					"Windows",
-					With[{maindrive = First[FileNameSplit[Environment["PROGRAMFILES"]]]},
-						{
-							FileNameJoin[{maindrive, "Python"}],
-							FileNameJoin[{Environment["LOCALAPPDATA"], "Programs", "Python", "Python"}],
-							FileNameJoin[{Environment["PROGRAMFILES"], "Python"}],
-							FileNameJoin[{$UserBaseDirectory, "ApplicationData", "SystemInstall", "Python"}],
-
-							(*versioned folder names*)
-							FileNameJoin[{maindrive, "Python*"}],
-							FileNameJoin[{Environment["LOCALAPPDATA"], "Programs", "Python", "Python*"}],
-							FileNameJoin[{Environment["PROGRAMFILES"], "Python*"}],
-
-							(*32-bit executables have -32 at the end*)
-							FileNameJoin[{Environment["PROGRAMFILES(X86)"], "Python-32"}],
-							FileNameJoin[{Environment["LOCALAPPDATA"], "Programs", "Python", "Python*-32"}],
-							FileNameJoin[{Environment["PROGRAMFILES(X86)"], "Python*-32"}],
-							FileNameJoin[{$HomeDirectory, "anaconda3"}]
-						}
-					],
-					"MacOSX", Join[
-						{
-							"/usr/bin",
-							"/usr/local/bin/",
-							"/usr/local/sbin",
-							"/usr/local/Cellar/bin",
-							ExpandFileName["~/opt/anaconda3/bin"]
-						},
-						(*this next path(s) is from the pkg installer on mac*)
-						FileNames["/Library/Frameworks/Python.framework/Versions/*/bin"]
-					],
-					"Unix",{"/usr/bin", "/usr/local/bin/", "/usr/local/sbin"}
-				]
-            ],
-
-		(*the program file is what is actually run as a repl - this is a function that takes as it's argument the version string*)
-		(*specified by the user*)
-		"ProgramFileFunction"->Function[{version},PacletManager`PacletResource["ExternalEvaluate_Python", "REPL"]],
-
-		(*we use the -u flag to stop python from buffering output so that Mathematica can read from the process immediately*)
-		(*in addition we provide the location of where to find the wolframclient package that can be used to export python types to wl*)
-		"ScriptExecCommandFunction"->makePythonCommandFunction[],
-
-
-
-		(*we can avoid any customization of the --version output screen by just evaluating the python code that tells us the version - this code works in all python versions*)
-		(*for example anaconda will customize the --version so it's not easily parsable, but this sidesteps all of that*)
-		"VersionExecCommandFunction"-> Function[{exec},{exec, "-c", "import sys; v=sys.version_info; print('%s.%s.%s' % (v.major, v.minor, v.micro))"}],
+		"ScriptExecCommandFunction"->Function[{x}, x],
+		
 		"SessionProlog"->None,
 		"NonZMQInitializeFunction"-> False,
 		"NonZMQEvaluationFunction" -> Function[
@@ -192,14 +160,15 @@ ExternalEvaluate`RegisterSystem["LLU",
 				If[!FileExistsQ@filename, 
 					Quiet@Close@filename;input = $Options["Head"]<>input
 				];
+				stream = If[FileExistsQ@filename, src0 = ReadString[filename]; OpenAppend@Echo[filename, "Source File:"], Echo[CreateFile[filename], "Source File:"]];
+				If[!StringContainsQ["DLLEXPORT __"<>libName<>"__"]@src0, input = input<>test["code"][libName]];
 				src = If[StringContainsQ[RegularExpression["(?m)^<\\|[^<|]*\\|>"]]@input
 					,
 					{head, functions} = Preprocessor[input, FileNameJoin[{targetDirectory, libName<>".dll"}]];
-					StringReplace["DLLEXPORT"->"EXTERN_C DLLEXPORT"]@StringRiffle[Flatten@{head, Map[#Code&]@functions}, "\n"]
+					StringRiffle[Flatten@{head, Map[#Code&]@functions}, "\n"]
 					,
 					input];
-					
-				stream = If[FileExistsQ@filename, src0 = ReadString[filename]; OpenAppend@Echo[filename, "Source File:"], Echo[CreateFile[filename], "Source File:"]];
+				
 				WriteString[stream, src];
 				Quiet@Close[stream];
 				lib = build[filename, libName];
@@ -231,25 +200,33 @@ ExternalEvaluate`RegisterSystem["LLU",
 							{
 								Button[
 									Style["Load Library(Release)", RGBColor[0.25, 0.48, 1], "FontFamily" -> "Courier", FontSize -> 10],
-									Echo[LibraryLoad[lib], "Load"],
+									Echo[ToExpression@(#Load&)@First@Select[#Name=="\"__"<>libName<>"__\""&]@functions; LibraryLoad[lib], "Load"],
 									Method -> "Queued"
 								],
 								Button[
 									Style["Unload Library(Release)", RGBColor[0.25, 0.48, 1], "FontFamily" -> "Courier", FontSize -> 10],
 									Echo[LibraryUnload[lib], "Unload"],
 									Method -> "Queued"
-								]
+								],
+								Button[
+									Style["Load All Functions", RGBColor[0.25, 0.48, 1], "FontFamily" -> "Courier", FontSize -> 10],
+									Echo[TableForm@Map[{#Name, ToExpression@#Load}&]@functions, "LoadResult"]
+								]	
 							},
 							{
 								Button[
 									Style["Load Library(Debug)", RGBColor[0.25, 0.48, 1], "FontFamily" -> "Courier", FontSize -> 10],
-									Echo[LibraryLoad[debuglib], "Loaded"],
+									Echo[ToExpression@StringReplace["\\Library\\"->"\\Library\\Debug\\"]@(#Load&)@First@Select[#Name=="\"__"<>libName<>"__\""&]@functions; LibraryLoad[debuglib], "Loaded"],
 									Method -> "Queued"
 								],
 								Button[
 									Style["Unload Library(Debug)", RGBColor[0.25, 0.48, 1], "FontFamily" -> "Courier", FontSize -> 10],
 									Echo[LibraryUnload[debuglib], "Unloaded"],
 									Method -> "Queued"
+								],
+								Button[
+									Style["Load All Functions", RGBColor[0.25, 0.48, 1], "FontFamily" -> "Courier", FontSize -> 10],
+									Echo[TableForm@Map[{#Name, ToExpression@StringReplace["\\Library\\"->"\\Library\\Debug\\"]@#Load}&]@functions, "LoadResult"]
 								]
 							}
 						}
@@ -521,6 +498,19 @@ StringReplace[{(*
 
 (* ::Section:: *)
 (*Test*)
+
+
+CCompilerDriver`CreateLibrary[
+ 								File@src,
+ 								libName,
+ 								Language -> "C++",
+ 								"CompileOptions" -> $Options["CompileOptions"],
+ 								"TargetDirectory" -> targetDirectory,
+ 								"IncludeDirectories" -> $Options["IncludeDirectories"],
+ 								"LibraryDirectories" -> $Options["LibraryDirectories"],
+ 								"ExtraObjectFiles" -> $Options["ExtraObjectFiles"],
+ 								"Libraries" -> $Options["Libraries"]
+ 							]
 
 
 ExternalEvaluateLLU`Private`GetFunctions[RegularExpression["(?m)EXTERN_C DLLEXPORT[\\s]*"], RegularExpression["\\s*,\\s*"]]["#include <LLU/LLU.h>\r\n\r\nEXTERN_C DLLEXPORT mint WolframLibrary_getVersion(){\r\n  return WolframLibraryVersion;\r\n}\r\n\r\nEXTERN_C DLLEXPORT int WolframLibrary_initialize(WolframLibraryData libData) {\r\n\tLLU::LibraryData::setLibraryData(libData);\r\n    return 0;\r\n}\r\n\r\nEXTERN_C DLLEXPORT void WolframLibrary_uninitialize(WolframLibraryData libData) {\r\n    return;\r\n}\r\n\r\nEXTERN_C DLLEXPORT int test(WolframLibraryData libData, mint Argc, \r\nMArgument *Args, MArgument Res){\r\n\tauto err = LLU::ErrorCode::NoError;\r\n\tLLU::MArgumentManager mngr {libData, Argc, Args, Res};\r\n\tauto a = mngr.getInteger(0);\r\n\tmngr.set(a);\r\n\treturn err;\r\n}", "d"]

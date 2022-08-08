@@ -2,7 +2,7 @@
 
 Paclet[
     "Name" -> "ExternalEvaluate_LLU",
-    "Version" -> "0.0.2",
+    "Version" -> "0.0.3",
     "MathematicaVersion" -> "12.3+",
     "AutoUpdating" -> True,
     "Extensions" -> {
