@@ -6,7 +6,7 @@ sourceDirectory
 debug
 (*\:5220\:9664targetDirectory\sourceDirectory\:6587\:4ef6\:5939\:4e0b\:6587\:4ef6\:540d\:4e3a\:7eaf\:6570\:5b57\:7684\:4efb\:4f55\:6587\:4ef6*)
 clean
-(*\:6253\:5f00Demo.nb*)
+(*\:62f7\:8d1dDemo.nb\:8def\:5f84*)
 demo
 (*\:7528\:4e86GeneralUtilities`AssociationTranspose*)
 Needs["GeneralUtilities`"]

@@ -25,7 +25,7 @@ Paclet[
                 {"IconCell", "Resources/IconGray.wxf"},
                 {"LibraryResources", "Resources/Library/Release"},
                 {"IncludeDirectory", "Resources/IncludeDirectory"},
-                {"Demo", "Resouces/Demo.nb"}
+                {"Demo", "Resources/Demo.nb"}
             }
         },
         {"LibraryLink"}
