@@ -2,7 +2,7 @@
 
 Paclet[
     "Name" -> "ExternalEvaluate_LLU",
-    "Version" -> "0.0.3",
+    "Version" -> "0.0.4",
     "MathematicaVersion" -> "12.3+",
     "AutoUpdating" -> True,
     "Extensions" -> {
@@ -24,7 +24,8 @@ Paclet[
                 {"Icon",     "Resources/IconNormal.wxf"},
                 {"IconCell", "Resources/IconGray.wxf"},
                 {"LibraryResources", "Resources/Library/Release"},
-                {"IncludeDirectory", "Resources/IncludeDirectory"}
+                {"IncludeDirectory", "Resources/IncludeDirectory"},
+                {"Demo", "Resouces/Demo.nb"}
             }
         },
         {"LibraryLink"}

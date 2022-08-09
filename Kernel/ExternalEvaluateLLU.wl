@@ -4,27 +4,18 @@ BeginPackage["ExternalEvaluateLLU`"]
 targetDirectory
 sourceDirectory
 debug
+(*\:5220\:9664targetDirectory\sourceDirectory\:6587\:4ef6\:5939\:4e0b\:6587\:4ef6\:540d\:4e3a\:7eaf\:6570\:5b57\:7684\:4efb\:4f55\:6587\:4ef6*)
+clean
+(*\:6253\:5f00Demo.nb*)
+demo
+(*\:7528\:4e86GeneralUtilities`AssociationTranspose*)
 Needs["GeneralUtilities`"]
 
 
 Begin["`Private`"]
 
 $Options = <|"IncludeDirectories"->{PacletManager`PacletResource["ExternalEvaluate_LLU", "IncludeDirectory"]}, "Head"->
-"#include <LLU/LLU.h>
- #include \"WolframCompileLibrary.h\"
- DLLEXPORT mint WolframLibrary_getVersion () {
-      return WolframLibraryVersion;
-}
-
-DLLEXPORT int WolframLibrary_initialize (WolframLibraryData libData)
-{
-      LLU::LibraryData::setLibraryData (libData);
-      return 0;
-}
-
-DLLEXPORT void WolframLibrary_uninitialize (WolframLibraryData libData) {
-      return;
-}
+"#include \"LLU.h\"
 ",
 "CompileOptions"->" /std:c++latest /EHsc",
 "ExtraObjectFiles" -> "",
@@ -36,6 +27,19 @@ sourceDirectory = "D:/ExternalEvaluate_LLU/Source";
 debug["vs"] := ExternalEvaluate["Shell", "devenv "<>sourceDirectory]
 debug["vscode"] := ExternalEvaluate["Shell", "code "<>sourceDirectory]
 Map[If[!DirectoryQ@#, CreateDirectory@#]&]@{targetDirectory, sourceDirectory};
+
+
+clean[] := ExternalEvaluate["Python", 
+"import os, re
+dir = 'D:/ExternalEvaluate_LLU/'
+for f in os.listdir(dir):
+    print(f)
+    for dirpath, _, filenames in os.walk(os.path.join(dir, f)):
+        for filename in filter(lambda x: re.match('[0-9]+\\..*', x), filenames):
+            os.remove(os.path.join(dirpath, filename))"]
+
+
+demo[] := SystemOpen[PacletManager`PacletResource["ExternalEvaluate_LLU", "Demo"]]
 
 
 cmake := StringTemplate["cmake_minimum_required(VERSION 3.22)
@@ -66,13 +70,12 @@ If[!FileExistsQ@cmakeFile, WriteString[cmakeFile, cmake]; Close@cmakeFile]
 
 
 test["code"] := 
-StringTemplate[
 "
 <||>
-Integer __`1`__(Integer a)
+Boolean __test__(Integer a)
 {
-	Return a;
-}"]
+	Return !LLU::LibraryData::uncheckedAPI();
+}"
 
 
 build[Dynamic[src_], Dynamic[libName_]] := build[src, libName]
@@ -129,12 +132,16 @@ DynamicModule[{debuglib, a, lib, src = Src, functions = Functions, libName = Lib
 				(Panel@TableForm@
 				{
 					Button[
-						Style["Release", RGBColor[0.25, 0.48, 1], "FontFamily" -> "Courier", FontSize -> 10], 
+						Style["Release", RGBColor[0.25, 0.48, 1], "FontFamily" -> "Courier", FontSize -> 10],
+						ToExpression@(#Load&)@First@Select[#Name=="\"__test__\""&]@functions; 
+						Echo[ToExpression@("!$$test$$[1]"), "libData Initialization:"];	 
 						GetLibraryFunctionDeclarations[File@#1, #2],
 						Method->"Queued"
 					],
 					Button[
 						Style["Debug", RGBColor[0.25, 0.48, 1], "FontFamily" -> "Courier", FontSize -> 10], 
+						ToExpression@StringReplace["\\Library\\"->"\\Library\\Debug\\"]@(#Load&)@First@Select[#Name=="\"__test__\""&]@functions; 
+						Echo[ToExpression@("$$"<>libName<>"$$[1]"), "libData Initialization:"];
 						GetLibraryFunctionDeclarations[File@#1, #3],
 						Method->"Queued"
 					]
@@ -161,14 +168,13 @@ ExternalEvaluate`RegisterSystem["LLU",
 					Quiet@Close@filename;input = $Options["Head"]<>input
 				];
 				stream = If[FileExistsQ@filename, src0 = ReadString[filename]; OpenAppend@Echo[filename, "Source File:"], Echo[CreateFile[filename], "Source File:"]];
-				If[!StringContainsQ["DLLEXPORT __"<>libName<>"__"]@src0, input = input<>test["code"][libName]];
+				If[!StringContainsQ["DLLEXPORT __"<>libName<>"__"]@src0, input = input<>test["code"]];
 				src = If[StringContainsQ[RegularExpression["(?m)^<\\|[^<|]*\\|>"]]@input
 					,
 					{head, functions} = Preprocessor[input, FileNameJoin[{targetDirectory, libName<>".dll"}]];
 					StringRiffle[Flatten@{head, Map[#Code&]@functions}, "\n"]
 					,
 					input];
-				
 				WriteString[stream, src];
 				Quiet@Close[stream];
 				lib = build[filename, libName];
@@ -179,7 +185,7 @@ ExternalEvaluate`RegisterSystem["LLU",
 						Style["Open source file", Bold],
 						Button[
 							Style[filename, RGBColor[0.25, 0.48, 1], "FontFamily" -> "Courier", FontSize -> 10, Underlined],
-							If[FileExistsQ@filename, ExternalEvaluate["Shell", StringTemplate["code `1`\n code `2`"][sourceDirectory, filename]]],
+							If[FileExistsQ@filename, ExternalEvaluate["Shell", StringTemplate["code `1`"][filename]]],
 							Appearance -> Frameless,
 							Method -> "Queued"
 						]
@@ -200,7 +206,8 @@ ExternalEvaluate`RegisterSystem["LLU",
 							{
 								Button[
 									Style["Load Library(Release)", RGBColor[0.25, 0.48, 1], "FontFamily" -> "Courier", FontSize -> 10],
-									Echo[ToExpression@(#Load&)@First@Select[#Name=="\"__"<>libName<>"__\""&]@functions; LibraryLoad[lib], "Load"],
+									Echo[
+										LibraryLoad[lib], "Load"],
 									Method -> "Queued"
 								],
 								Button[
@@ -216,7 +223,8 @@ ExternalEvaluate`RegisterSystem["LLU",
 							{
 								Button[
 									Style["Load Library(Debug)", RGBColor[0.25, 0.48, 1], "FontFamily" -> "Courier", FontSize -> 10],
-									Echo[ToExpression@StringReplace["\\Library\\"->"\\Library\\Debug\\"]@(#Load&)@First@Select[#Name=="\"__"<>libName<>"__\""&]@functions; LibraryLoad[debuglib], "Loaded"],
+									Echo[
+										LibraryLoad[debuglib], "Loaded"],
 									Method -> "Queued"
 								],
 								Button[
@@ -260,12 +268,13 @@ ExternalEvaluate`RegisterSystem["LLU",
 	|>
 ];
 
-(*\:6211\:6ca1\:641e\:61c2ExternalEvaluate\:91ccRegister\:76f8\:5173\:7684\:673a\:5236\:ff0c\:6211\:53ea\:77e5\:9053R.exe\:53ef\:7528*)
-(*Quiet@RegisterExternalEvaluator["LLU", "D:\\Program Files\\R\\R-4.1.2\\bin\\R.exe"];*)
-
 
 (* ::Section:: *)
 (*Parser*)
+
+
+(* ::Subsection:: *)
+(*GetFunctions\:ff1a\:7528regex_\:5206\:5272\:8f93\:5165\:ff0cGet\:6240\:6709\:8981\:7f16\:8bd1\:4e3aLibraryLink\:7684Function*)
 
 
 GetFunctions[regex_, argumentSplitFlag_] := {input, libDirectory} |->
@@ -288,6 +297,10 @@ Module[{metadatas, metadataPos, functions, functionPos, head},
 ]
 
 
+(* ::Subsection:: *)
+(*ParseFunction\:ff1a\:83b7\:5f97\:51fd\:6570\:7684\:51fd\:6570\:540d\:3001\:8f93\:5165\:8f93\:51fa\:53d8\:91cf\:3001\:8f93\:5165\:8f93\:51fa\:7c7b\:578b\:53cametadata\:7b49\:4fe1\:606f*)
+
+
 ParseFunction[argumentSplitFlag_] := function |->
 Module[{declLoc, parenthesisLoc, braceLoc, decl, input, src, outType, funcName, inputVars, inType, inName, Code, outName},
 	braceLoc = Flatten@StringPosition[function, Longest["{"~~___~~"}"], Overlaps->False];
@@ -307,6 +320,10 @@ Module[{declLoc, parenthesisLoc, braceLoc, decl, input, src, outType, funcName, 
 ]
 
 
+(* ::Subsection:: *)
+(*LoadFunction\:ff1a\:751f\:6210LibraryFunctionLoad\:4ee3\:7801\:ff0c\:4ee5\:5b9e\:73b0LibraryFunction\:7684\:81ea\:52a8\:5bfc\:5165*)
+
+
 LoadFunction := functionInfo |->
 Module[{func = functionInfo},
 	func["loadName"] = StringReplace["_"->"$"]@func["Name"];
@@ -321,6 +338,10 @@ Module[{func = functionInfo},
 		<|KeyTake[{"Name", "loadName", "loadIn", "loadOut", "libDirectory"}]@func|>;
 	func
 ]
+
+
+(* ::Subsection:: *)
+(*GenerateCFunction\:ff1a\:6839\:636eGetFunctions\:5f97\:5230\:7684\:51fd\:6570\:7684\:6240\:6709\:4fe1\:606f\:ff0c\:751f\:6210C++\:4ee3\:7801*)
 
 
 GenerateCFunction := functionInfo |->
@@ -341,6 +362,10 @@ Module[{func = functionInfo, inputDeclaration},
 ]
 
 
+(* ::Subsection:: *)
+(*Preprocessor\:ff1aExternalEvaluate\:7684\:65f6\:5019\:ff0c\:53ea\:8c03\:7528\:8fd9\:4e00\:4e2a\:51fd\:6570*)
+
+
 Preprocessor := {input, libDirectory} |->
 Module[{head, functions},
 	{head, functions} = GetFunctions[RegularExpression["(?m)^<\\|[^<|]*\\|>"], RegularExpression["\\s*;\\s*"]][input, libDirectory];
@@ -354,13 +379,17 @@ Module[{head, functions},
 ]
 
 
+(* ::Subsection:: *)
+(*FunctionCompile\:5bfc\:5165\:76f8\:5173*)
+
+
 selectFunctions[functions_] := Select[functions, !ContainsQ[#inType, "WolframLibraryData"|"Null"]&]
 
 GetLibraryFunctionDeclarations[filename:File[_], lib_String] := 
 DynamicModule[{input = ReadString[filename], head, functions, decl},
 	functions = GetFunctions[RegularExpression["(?m)EXTERN_C DLLEXPORT[\\s]*"], RegularExpression["\\s*,\\s*"]][input, lib][[2]]//selectFunctions;
 	CopyToClipboard@If[functions != {},
-		Map[
+		LL`def = Map[
 				LibraryFunctionDeclaration[ToExpression["LL`"<>StringReplace["_"->"$"]@#Name]->#Name, lib, cTypeToFunctionCompileTypes[#inType, #outType]]&
 		]@functions,
 		Echo["There are no functions to FunctionCompile", "Copy LibraryFunctionDeclaration:"];
@@ -380,6 +409,39 @@ Module[{input = src//Echo, head, functions, decl},
 
 GetLibraryFunctionDeclarations[___] := $Failed
 
+
+(* ::Subsection:: *)
+(*\:4ee3\:7801\:751f\:6210\:7528\:7684StringTemplate*)
+
+
+generateInputDecls := StringTemplate[
+    "auto `inName` = mngr.get`inType`(`i`);\n\t"
+];
+
+generateFunction[x_/;x["outName"] != ""] := StringTemplate[
+"EXTERN_C DLLEXPORT int `Name`(WolframLibraryData libData, mint Argc, 
+MArgument *Args, MArgument Res){
+	auto err = LLU::ErrorCode::NoError;
+	LLU::MArgumentManager mngr {libData, Argc, Args, Res};
+	`inputDeclaration``Code`
+	mngr.set(`outName`);
+	return err;
+}"][x];
+
+generateFunction[x_/;x["outName"] == ""] := StringTemplate[
+"EXTERN_C DLLEXPORT int `Name`(WolframLibraryData libData, mint Argc, 
+MArgument *Args, MArgument Res){
+	auto err = LLU::ErrorCode::NoError;
+	LLU::MArgumentManager mngr {libData, Argc, Args, Res};
+	`inputDeclaration``Code`
+	return err;
+}"][x];
+
+
+(* ::Subsection:: *)
+(*\:7528\:4e8e\:4ee3\:7801\:751f\:6210\:53caLibraryFunctionLoad/Declaration\:7684\:5404\:79cd\:66ff\:6362\:89c4\:5219*)
+
+
 cTypeToFunctionCompileTypes[inType_, outType_] := 
 Module[{t, r, replaceRule, in, out},
 	replaceRule = ReplaceAll[
@@ -392,6 +454,7 @@ Module[{t, r, replaceRule, in, out},
     		"MNumericArray" -> TypeSpecifier["NumericArray"]["MachineReal", 2],
     		"MSparseArray" -> TypeSpecifier["SparseArray"]["MachineReal", 2],
     		"mcomplex" -> "ComplexReal64",
+    		"bool" -> "Boolean",
     		"int" -> "CInt"
 		}
 	];
@@ -399,37 +462,6 @@ Module[{t, r, replaceRule, in, out},
 	out = replaceRule@outType;
 	Rule[in, out]
 ]
-
-generateInputDecls := StringTemplate[
-    "auto `inName` = mngr.get`inType`(`i`);\n\t"
-];
-
-generateFunction[x_/;x["outName"] != ""] := StringTemplate[
-"DLLEXPORT int `Name`(WolframLibraryData libData, mint Argc, 
-MArgument *Args, MArgument Res){
-	auto err = LLU::ErrorCode::NoError;
-	LLU::MArgumentManager mngr {libData, Argc, Args, Res};
-	`inputDeclaration``Code`
-	mngr.set(`outName`);
-	return err;
-}"][x];
-
-generateFunction[x_/;x["outName"] == ""] := StringTemplate[
-"DLLEXPORT int `Name`(WolframLibraryData libData, mint Argc, 
-MArgument *Args, MArgument Res){
-	auto err = LLU::ErrorCode::NoError;
-	LLU::MArgumentManager mngr {libData, Argc, Args, Res};
-	`inputDeclaration``Code`
-	return err;
-}"][x];
-
-generateInType := 
-StringReplace[
-{
-	a__~~RegularExpression["\\*"]:> 
-		a~~"*",
-	x__:>x
-}];
 
 generateInCoercion := 
 StringReplace[
@@ -500,6 +532,10 @@ StringReplace[{(*
 (*Test*)
 
 
+(* ::Subsection:: *)
+(*\:6d4b\:4e86\:4e2a\:5bc2\:5bde\:3002\:3002\:6d4b\:8bd5\:4ee5Demo.nb\:4e3a\:51c6*)
+
+
 CCompilerDriver`CreateLibrary[
  								File@src,
  								libName,
@@ -514,6 +550,9 @@ CCompilerDriver`CreateLibrary[
 
 
 ExternalEvaluateLLU`Private`GetFunctions[RegularExpression["(?m)EXTERN_C DLLEXPORT[\\s]*"], RegularExpression["\\s*,\\s*"]]["#include <LLU/LLU.h>\r\n\r\nEXTERN_C DLLEXPORT mint WolframLibrary_getVersion(){\r\n  return WolframLibraryVersion;\r\n}\r\n\r\nEXTERN_C DLLEXPORT int WolframLibrary_initialize(WolframLibraryData libData) {\r\n\tLLU::LibraryData::setLibraryData(libData);\r\n    return 0;\r\n}\r\n\r\nEXTERN_C DLLEXPORT void WolframLibrary_uninitialize(WolframLibraryData libData) {\r\n    return;\r\n}\r\n\r\nEXTERN_C DLLEXPORT int test(WolframLibraryData libData, mint Argc, \r\nMArgument *Args, MArgument Res){\r\n\tauto err = LLU::ErrorCode::NoError;\r\n\tLLU::MArgumentManager mngr {libData, Argc, Args, Res};\r\n\tauto a = mngr.getInteger(0);\r\n\tmngr.set(a);\r\n\treturn err;\r\n}", "d"]
+
+
+#Name&@<|"Name"->"WolframLibrary_getVersion","metadata"->DLLEXPORT EXTERN_C,"inType"->{"Null","Null"},"outType"->"mint","inName"->{"",""},"outName"->"","Code"->"\\n/\\n\\t  return WolframLibraryVersion;\\n\\n\\t","libDirectory"->"d"|>
 
 
 End[] (* End `Private` *)
