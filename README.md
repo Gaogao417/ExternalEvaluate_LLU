@@ -9,6 +9,6 @@
 ### Corresponding C++ code
 ![image](https://user-images.githubusercontent.com/76693800/184479585-f6e24aa6-fdeb-4fdb-ae88-3f22c7033ad1.png)
  ## Requirements
-** PlatForm:** Windows 64-bit
+**PlatForm:** Windows 64-bit
 **C++ Compiler:** MSVC
 
